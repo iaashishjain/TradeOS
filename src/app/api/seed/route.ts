@@ -3,6 +3,12 @@ import { trades, customOptions, accountSettings } from "@/db/schema";
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 
+export async function GET() {
+  return NextResponse.json({
+    message: "Seed API is working. Use POST request to insert seed data."
+  });
+}
+
 export async function POST() {
   try {
     // Check if we already have trades
