@@ -34,17 +34,30 @@ export default function DashboardPage() {
 
   const startingBalance = settings?.startingBalance ? num(settings.startingBalance) : 0;
   const currency = settings?.currency || "USD";
-  const metrics = calculatePerformanceMetrics(filteredTrades);
-  const equityCurve = calculateEquityCurve(filteredTrades, startingBalance);
-  const dailyPnl = calculateDailyPnl(filteredTrades);
-  const marketData = getTradesByMarket(filteredTrades);
+  const metrics = useMemo(() => calculatePerformanceMetrics(filteredTrades), [filteredTrades]);
+
+const equityCurve = useMemo(
+  () => calculateEquityCurve(filteredTrades, startingBalance),
+  [filteredTrades, startingBalance]
+);
+
+const dailyPnl = useMemo(
+  () => calculateDailyPnl(filteredTrades),
+  [filteredTrades]
+);
+
+const marketData = useMemo(
+  () => getTradesByMarket(filteredTrades),
+  [filteredTrades]
+);
 
   const engine = useMemo(() => new InsightEngine(filteredTrades), [filteredTrades]);
-  const dq = engine.calculateDecisionQuality();
-  const summary = engine.generateSummary();
-  const patterns = engine.detectPatterns();
-  const mistakes = engine.analyzeMistakes();
-  const whatWorked = engine.analyzeWhatWorked();
+
+const dq = useMemo(() => engine.calculateDecisionQuality(), [engine]);
+const summary = useMemo(() => engine.generateSummary(), [engine]);
+const patterns = useMemo(() => engine.detectPatterns(), [engine]);
+const mistakes = useMemo(() => engine.analyzeMistakes(), [engine]);
+const whatWorked = useMemo(() => engine.analyzeWhatWorked(), [engine]);
 
   const currentBalance = startingBalance + metrics.totalPnl;
   const returnPct = startingBalance > 0 ? ((currentBalance - startingBalance) / startingBalance) * 100 : 0;
