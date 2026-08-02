@@ -34,7 +34,10 @@ export default function DashboardPage() {
 
   const startingBalance = settings?.startingBalance ? num(settings.startingBalance) : 0;
   const currency = settings?.currency || "USD";
-  const metrics = useMemo(() => calculatePerformanceMetrics(filteredTrades), [filteredTrades]);
+  const metrics = useMemo(
+  () => calculatePerformanceMetrics(filteredTrades),
+  [filteredTrades]
+);
 
 const equityCurve = useMemo(
   () => calculateEquityCurve(filteredTrades, startingBalance),
