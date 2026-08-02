@@ -20,8 +20,8 @@ import { format, subDays, subMonths, startOfYear } from "date-fns";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const { settings } = useSettings();
-  const { trades, loading } = useTrades({ accountId: settings?.id });
+  const { settings, loading: settingsLoading } = useSettings();
+  const { trades, loading: tradesLoading } = useTrades({ accountId: settings?.id });
   const [dateRange, setDateRange] = useState({ start: format(subMonths(new Date(), 3), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
   const [quickRange, setQuickRange] = useState("3M");
 
@@ -32,7 +32,7 @@ export default function DashboardPage() {
     return d >= new Date(dateRange.start) && d <= new Date(dateRange.end + "T23:59:59");
   }), [trades, dateRange]);
 
-  const startingBalance = num(settings?.startingBalance) || 10000;
+  const startingBalance = settings?.startingBalance ? num(settings.startingBalance) : 0;
   const currency = settings?.currency || "USD";
   const metrics = calculatePerformanceMetrics(filteredTrades);
   const equityCurve = calculateEquityCurve(filteredTrades, startingBalance);
@@ -88,7 +88,7 @@ export default function DashboardPage() {
     return { streak: current, type };
   }, [closedTrades]);
 
-  if (loading) {
+  if (settingsLoading || tradesLoading) {
     return (
       <PageShell title="Dashboard">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
