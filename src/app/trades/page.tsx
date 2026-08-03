@@ -17,7 +17,7 @@ import {
   MultiCombobox,
   ImageUpload,
 } from "@/components/ui";
-import { formatCurrency, formatPrice, num, fmtDate, fmtTime, fmtDateTime } from "@/lib/calculations";
+import { formatCurrency, formatPrice, num, fmtDate, fmtTime, fmtDateTime, resultLabel, resultVariant } from "@/lib/calculations";
 import { exportTradeJournalPDF } from "@/lib/pdf-export";
 import { format } from "date-fns";
 import type { Trade } from "@/db/schema";
@@ -36,11 +36,25 @@ const DIRECTION_OPTIONS = [
 
 const SESSION_OPTIONS = [
   { value: "", label: "Select Session" },
+  { value: "pre_market", label: "Pre-Market" },
   { value: "asian", label: "Asian" },
-  { value: "london", label: "London" },
-  { value: "new_york", label: "New York" },
-  { value: "overlap", label: "London / New York Overlap" },
   { value: "sydney", label: "Sydney" },
+  { value: "london", label: "London" },
+  { value: "overlap", label: "London / New York Overlap" },
+  { value: "new_york", label: "New York" },
+  { value: "post_market", label: "Post-Market" },
+];
+
+const TRADE_TYPE_OPTIONS = [
+  { value: "taken", label: "Taken" },
+  { value: "missed", label: "Missed" },
+];
+
+const RESULT_OPTIONS = [
+  { value: "", label: "Select Result" },
+  { value: "profit", label: "Profit (Win)" },
+  { value: "loss", label: "Loss" },
+  { value: "breakeven", label: "Breakeven" },
 ];
 
 const TIMEFRAME_OPTIONS = [
@@ -73,6 +87,8 @@ interface TradeForm {
   direction: string;
   session: string;
   timeframe: string;
+  tradeType: string;
+  result: string;
   accountSize: string;
   riskAmount: string;
   riskPercent: string;
@@ -111,6 +127,8 @@ const createDefaultForm = (settings: { startingBalance?: string | null } | null)
   direction: "long",
   session: "",
   timeframe: "H1",
+  tradeType: "taken",
+  result: "",
   accountSize: String(settings?.startingBalance || "10000"),
   riskAmount: "",
   riskPercent: "",
@@ -142,7 +160,7 @@ export default function TradesPage() {
   const [showFilters, setShowFilters] = useState(false);
   
   const mergedFilters = useMemo(() => ({ ...filters, accountId: settings?.id }), [filters, settings?.id]);
-  const { trades, loading, createTrade, updateTrade, deleteTrade } = useTrades(mergedFilters);
+  const { trades, loading, createTrade, updateTrade, deleteTrade, fetchFullTrade } = useTrades(mergedFilters);
   
   // Custom options
   const { options: strategyOptions, createOption: createStrategy, updateOption: updateStrategy, deleteOption: deleteStrategy } = useCustomOptions("strategy");
@@ -196,10 +214,24 @@ export default function TradesPage() {
       const exitPrice = num(next.exitPrice);
       const lots = num(next.positionSize);
 
+      // ── 0. Auto-detect market type from symbol ──
+      if (key === "symbol") {
+        const s = (value as string).toUpperCase();
+        if (s.includes("BTC") || s.includes("ETH") || s.includes("SOL") || s.includes("XRP") || s.includes("DOGE") || s.includes("ADA") || s.includes("BNB") || s.includes("MATIC") || s.includes("DOT") || s.includes("AVAX") || s.includes("LINK") || s.includes("LTC")) {
+          next.marketType = "crypto";
+        } else if (s.includes("XAU") || s.includes("XAG") || s.includes("OIL") || s.includes("WTI") || s.includes("BRENT") || s.includes("NGAS") || s.includes("GOLD") || s.includes("SILVER")) {
+          next.marketType = "commodities";
+        } else if (s.includes("US30") || s.includes("US500") || s.includes("NAS") || s.includes("DAX") || s.includes("FTSE") || s.includes("SP500") || s.includes("NDX") || s.includes("VIX")) {
+          next.marketType = "cfd";
+        } else if (s.includes("/") || s.includes("USD") || s.includes("EUR") || s.includes("GBP") || s.includes("JPY") || s.includes("AUD") || s.includes("NZD") || s.includes("CAD") || s.includes("CHF")) {
+          next.marketType = "forex";
+        }
+      }
+
       // Determine instrument characteristics
       const sym = next.symbol.toUpperCase();
-      const isJPY = sym.includes("JPY");
-      const isGold = sym.includes("XAU");
+      const isJPY = sym.includes("JPY") && !sym.includes("BTC") && !sym.includes("ETH");
+      const isGold = sym.includes("XAU") || sym.includes("GOLD");
       const isCrypto = next.marketType === "crypto";
 
       // Pip multiplier: how many pips per 1.0 price move
@@ -243,36 +275,35 @@ export default function TradesPage() {
         }
       }
 
-      // ── 4. Direction change → recalculate exit price, TP, and pips ──
+      // ── 4. Result selection → set exit price from SL or TP ──
+      if (key === "result") {
+        const resultVal = value as string;
+        if (resultVal === "loss" && sl > 0) {
+          next.exitPrice = next.stopLoss;
+        } else if (resultVal === "profit" && tp > 0) {
+          next.exitPrice = next.takeProfit;
+        } else if (resultVal === "breakeven" && entry > 0) {
+          next.exitPrice = next.entryPrice;
+        }
+        // Recalculate pips from the new exit
+        const newExit = num(next.exitPrice);
+        if (newExit > 0 && entry > 0) {
+          const pips = next.direction === "long" ? (newExit - entry) * pipMultiplier : (entry - newExit) * pipMultiplier;
+          next.pipsCaptured = pips.toFixed(1);
+        }
+      }
+
+      // ── 5. Direction change → recalculate SL and exit pips ──
       if (key === "direction" && entry > 0) {
-        const curPips = num(next.pipsCaptured);
-        if (curPips !== 0) {
-          // Recalculate exit price from pips using new direction
-          const newExit = next.direction === "long"
-            ? entry + Math.abs(curPips) / pipMultiplier
-            : entry - Math.abs(curPips) / pipMultiplier;
-          next.exitPrice = newExit.toFixed(decimals);
-          next.takeProfit = next.exitPrice;
-          // Keep pips sign correct for new direction
-          next.pipsCaptured = Math.abs(curPips).toFixed(1);
+        // Recalculate exit pips with new direction
+        const curExit = num(next.exitPrice);
+        if (curExit > 0) {
+          const pips = next.direction === "long" ? (curExit - entry) * pipMultiplier : (entry - curExit) * pipMultiplier;
+          next.pipsCaptured = pips.toFixed(1);
         }
       }
 
-      // ── 5. Exit price → auto-set Take Profit ──
-      // TP always mirrors exit price UNLESS user has manually changed TP to a different value
-      if (key === "exitPrice" && exitPrice > 0) {
-        const prevTpMatchedPrevExit = !prev.takeProfit || num(prev.takeProfit) === 0 || num(prev.takeProfit) === num(prev.exitPrice);
-        if (prevTpMatchedPrevExit) {
-          next.takeProfit = next.exitPrice;
-        }
-      }
-
-      // ── 6. Take Profit → set Exit Price only if exit is empty ──
-      if (key === "takeProfit" && tp > 0 && (!next.exitPrice || num(next.exitPrice) === 0)) {
-        next.exitPrice = next.takeProfit;
-      }
-
-      // ── 7. Pips from exit price ──
+      // ── 6. Pips from exit price (when exit or entry changes manually) ──
       if ((key === "exitPrice" || key === "entryPrice") && entry > 0 && exitPrice > 0) {
         const pips = next.direction === "long"
           ? (exitPrice - entry) * pipMultiplier
@@ -280,32 +311,23 @@ export default function TradesPage() {
         next.pipsCaptured = pips.toFixed(1);
       }
 
-      // ── 8. Exit price + TP from pips ──
+      // ── 7. Exit price from pips (when pips entered manually) ──
       if (key === "pipsCaptured" && entry > 0) {
         const pips = num(value as string);
         const newExit = next.direction === "long"
           ? entry + pips / pipMultiplier
           : entry - pips / pipMultiplier;
         next.exitPrice = newExit.toFixed(decimals);
-        const prevTpMatchedPrevExit = !prev.takeProfit || num(prev.takeProfit) === 0 || num(prev.takeProfit) === num(prev.exitPrice);
-        if (prevTpMatchedPrevExit) {
-          next.takeProfit = next.exitPrice;
-        }
       }
 
-      // ── 9. Auto-calc P&L from pips × pip_value × lots ──
-      // Recalculate whenever any price, pips, lots, or direction changes
-      const finalPips = num(next.pipsCaptured);
+      // ── 8. Auto-calc P&L ──
+      const finalExit = num(next.exitPrice);
       const finalLots = num(next.positionSize);
-      if (finalPips !== 0 && finalLots > 0) {
-        const calcPnl = finalPips * pipValuePerLot * finalLots;
-        next.pnl = calcPnl.toFixed(2);
-      } else if (num(next.exitPrice) > 0 && entry > 0 && finalLots > 0) {
-        // Fallback: calc from prices if pips not set
-        const ep = num(next.exitPrice);
-        const rawPips = next.direction === "long" ? (ep - entry) * pipMultiplier : (entry - ep) * pipMultiplier;
-        const calcPnl = rawPips * pipValuePerLot * finalLots;
-        next.pnl = calcPnl.toFixed(2);
+      if (finalExit > 0 && entry > 0 && finalLots > 0) {
+        const rawPips = next.direction === "long" ? (finalExit - entry) * pipMultiplier : (entry - finalExit) * pipMultiplier;
+        next.pnl = (rawPips * pipValuePerLot * finalLots).toFixed(2);
+      } else if (num(next.pipsCaptured) !== 0 && finalLots > 0) {
+        next.pnl = (num(next.pipsCaptured) * pipValuePerLot * finalLots).toFixed(2);
       }
 
       return next;
@@ -321,6 +343,8 @@ export default function TradesPage() {
         direction: trade.direction,
         session: trade.session || "",
         timeframe: trade.timeframe || "H1",
+        tradeType: trade.isMissed ? "missed" : "taken",
+        result: trade.outcome === "win" ? "profit" : trade.outcome === "loss" ? "loss" : trade.outcome === "breakeven" ? "breakeven" : "",
         accountSize: cleanNum(trade.accountSize) || cleanNum(settings?.startingBalance) || "10000",
         riskAmount: cleanNum(trade.riskAmount),
         riskPercent: cleanNum(trade.riskPercent),
@@ -355,10 +379,15 @@ export default function TradesPage() {
     if (!form.symbol || !form.entryPrice || !form.positionSize) return;
     setSaving(true);
     try {
+      // Map result to outcome for API
+      const outcomeMap: Record<string, string> = { profit: "win", loss: "loss", breakeven: "breakeven" };
+      const isMissed = form.tradeType === "missed";
       const payload = {
         ...form,
         status: "closed",
         fees: "0",
+        outcome: outcomeMap[form.result] || null,
+        isMissed,
         accountId: settings?.id || null,
         session: form.session || null,
         exitPrice: form.exitPrice || null,
@@ -389,19 +418,29 @@ export default function TradesPage() {
   };
 
   const filteredByTab = useMemo(() => {
-    if (tab === "all") return trades;
-    if (tab === "win") return trades.filter((t) => t.outcome === "win");
-    if (tab === "loss") return trades.filter((t) => t.outcome === "loss");
-    if (tab === "breakeven") return trades.filter((t) => t.outcome === "breakeven");
-    return trades;
+    const taken = trades.filter((t) => !t.isMissed);
+    const missed = trades.filter((t) => t.isMissed);
+    if (tab === "all") return taken;
+    if (tab === "win") return taken.filter((t) => t.outcome === "win");
+    if (tab === "loss") return taken.filter((t) => t.outcome === "loss");
+    if (tab === "breakeven") return taken.filter((t) => t.outcome === "breakeven");
+    if (tab === "missed_all") return missed;
+    if (tab === "missed_win") return missed.filter((t) => t.outcome === "win");
+    if (tab === "missed_loss") return missed.filter((t) => t.outcome === "loss");
+    return taken;
   }, [trades, tab]);
 
   const stats = useMemo(() => {
-    const wins = trades.filter((t) => t.outcome === "win");
-    const totalPnl = trades.reduce((sum, t) => sum + num(t.pnl), 0);
+    const taken = trades.filter((t) => !t.isMissed);
+    const missed = trades.filter((t) => t.isMissed);
+    const wins = taken.filter((t) => t.outcome === "win");
+    const totalPnl = taken.reduce((sum, t) => sum + num(t.pnl), 0);
     return {
-      total: trades.length,
-      winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
+      total: taken.length,
+      missed: missed.length,
+      missedWins: missed.filter((t) => t.outcome === "win").length,
+      missedLosses: missed.filter((t) => t.outcome === "loss").length,
+      winRate: taken.length > 0 ? (wins.length / taken.length) * 100 : 0,
       totalPnl,
     };
   }, [trades]);
@@ -536,10 +575,13 @@ export default function TradesPage() {
           {viewMode === "trades" && (
             <Tabs
               tabs={[
-                { value: "all", label: `All (${trades.length})` },
+                { value: "all", label: `All (${stats.total})` },
                 { value: "win", label: "Wins" },
                 { value: "loss", label: "Losses" },
-                { value: "breakeven", label: "Breakeven" },
+                { value: "breakeven", label: "BE" },
+                { value: "missed_all", label: `Missed (${stats.missed})` },
+                { value: "missed_win", label: "Missed Wins" },
+                { value: "missed_loss", label: "Missed Losses" },
               ]}
               active={tab}
               onChange={setTab}
@@ -593,7 +635,14 @@ export default function TradesPage() {
                   <tr
                     key={t.id}
                     className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
-                    onClick={() => setViewingTrade(t)}
+                    onClick={async () => {
+                      // Show immediately with slim data, then load screenshots
+                      setViewingTrade(t);
+                      if (!t.screenshotBefore && !t.screenshotAfter) {
+                        const full = await fetchFullTrade(t.id);
+                        if (full) setViewingTrade(full);
+                      }
+                    }}
                   >
                     <td className="px-4 py-3 text-dark-200 whitespace-nowrap">
                       {fmtDateTime(t.entryDate)}
@@ -629,11 +678,7 @@ export default function TradesPage() {
                     </td>
                     <td className="px-4 py-3 text-dark-300 text-xs">{t.strategy || "—"}</td>
                     <td className="px-4 py-3">
-                      <Badge
-                        variant={t.outcome === "win" ? "profit" : t.outcome === "loss" ? "loss" : "default"}
-                      >
-                        {t.outcome?.toUpperCase() || "CLOSED"}
-                      </Badge>
+                      <Badge variant={resultVariant(t)}>{resultLabel(t)}</Badge>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -667,7 +712,7 @@ export default function TradesPage() {
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editingTrade ? "Edit Trade" : "Log New Trade"} wide>
         <div className="space-y-6">
           {/* Row 1: Core Trade Info */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Combobox
               label="Instrument"
               value={form.symbol}
@@ -683,6 +728,12 @@ export default function TradesPage() {
               value={form.direction}
               onChange={(e) => updateField("direction", e.target.value)}
               options={DIRECTION_OPTIONS}
+            />
+            <Select
+              label="Taken / Missed"
+              value={form.tradeType}
+              onChange={(e) => updateField("tradeType", e.target.value)}
+              options={TRADE_TYPE_OPTIONS}
             />
             <Select
               label="Market"
@@ -730,16 +781,22 @@ export default function TradesPage() {
             </div>
           </div>
 
-          {/* Row 3: Prices & P/L */}
+          {/* Row 3: Prices */}
           <div className="p-4 bg-dark-800/50 rounded-lg border border-white/5">
-            <h4 className="text-xs font-medium text-dark-300 uppercase tracking-wider mb-3">Prices & P/L</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+            <h4 className="text-xs font-medium text-dark-300 uppercase tracking-wider mb-3">Prices</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Input label="Entry Price" type="number" step="any" value={form.entryPrice} onChange={(e) => updateField("entryPrice", e.target.value)} />
               <Input label="Stop Loss" type="number" step="any" value={form.stopLoss} onChange={(e) => updateField("stopLoss", e.target.value)} />
               <Input label="Take Profit" type="number" step="any" value={form.takeProfit} onChange={(e) => updateField("takeProfit", e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <Input label="Exit Price" type="number" step="any" value={form.exitPrice} onChange={(e) => updateField("exitPrice", e.target.value)} />
+            </div>
+          </div>
+
+          {/* Row 3b: Result & P/L */}
+          <div className="p-4 bg-dark-800/50 rounded-lg border border-white/5">
+            <h4 className="text-xs font-medium text-dark-300 uppercase tracking-wider mb-3">Result</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Select label="Profit / Loss" value={form.result} onChange={(e) => updateField("result", e.target.value)} options={RESULT_OPTIONS} />
               <Input label="Pips Captured" type="number" step="0.1" value={form.pipsCaptured} onChange={(e) => updateField("pipsCaptured", e.target.value)} />
               <Input label="P/L" type="number" step="0.01" value={form.pnl} onChange={(e) => updateField("pnl", e.target.value)} suffix="$" />
             </div>
@@ -885,8 +942,8 @@ export default function TradesPage() {
                 <Badge variant={viewingTrade.direction === "long" ? "profit" : "loss"}>
                   {viewingTrade.direction === "long" ? "BUY" : "SELL"}
                 </Badge>
-                <Badge variant={viewingTrade.outcome === "win" ? "profit" : viewingTrade.outcome === "loss" ? "loss" : "default"}>
-                  {viewingTrade.outcome?.toUpperCase() || viewingTrade.status.toUpperCase()}
+                <Badge variant={resultVariant(viewingTrade)}>
+                  {resultLabel(viewingTrade)}
                 </Badge>
               </div>
               <div className="text-right">
@@ -929,7 +986,7 @@ export default function TradesPage() {
                 {viewingTrade.screenshotBefore && (
                   <div>
                     <p className="text-xs text-dark-400 uppercase mb-2">Before</p>
-                    <img
+                    <img loading="lazy"
                       src={viewingTrade.screenshotBefore}
                       alt="Before"
                       className="w-full rounded-lg border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"
@@ -940,7 +997,7 @@ export default function TradesPage() {
                 {viewingTrade.screenshotAfter && (
                   <div>
                     <p className="text-xs text-dark-400 uppercase mb-2">After</p>
-                    <img
+                    <img loading="lazy"
                       src={viewingTrade.screenshotAfter}
                       alt="After"
                       className="w-full rounded-lg border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"
@@ -1051,7 +1108,7 @@ export default function TradesPage() {
                 </button>
               </div>
             </div>
-            <img src={imageModal.url} alt={imageModal.title} className="w-full max-h-[80vh] object-contain rounded-lg" />
+            <img loading="lazy" src={imageModal.url} alt={imageModal.title} className="w-full max-h-[80vh] object-contain rounded-lg" />
           </div>
         </div>
       )}
@@ -1062,13 +1119,13 @@ export default function TradesPage() {
 /* ═══════ TABULAR REPORT ═══════ */
 function TabularReport({ trades, reportRange, setReportRange }: { trades: Trade[]; reportRange: { start: string; end: string }; setReportRange: (r: { start: string; end: string }) => void }) {
   const filtered = useMemo(() => trades.filter((t) => { const d = new Date(t.entryDate); return d >= new Date(reportRange.start) && d <= new Date(reportRange.end + "T23:59:59"); }).sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()), [trades, reportRange]);
-  const closed = filtered.filter((t) => t.status === "closed");
-  const wins = closed.filter((t) => t.outcome === "win");
-  const totalPnl = closed.reduce((s, t) => s + num(t.pnl), 0);
-  const totalPips = closed.reduce((s, t) => s + num(t.pipsCaptured), 0);
-  const byStrategy = useMemo(() => { const m = new Map<string, { w: number; l: number; pnl: number }>(); for (const t of closed) { const k = t.strategy || "No Strategy"; if (!m.has(k)) m.set(k, { w: 0, l: 0, pnl: 0 }); const d = m.get(k)!; if (t.outcome === "win") d.w++; else if (t.outcome === "loss") d.l++; d.pnl += num(t.pnl); } return [...m.entries()].map(([name, d]) => ({ name, ...d, total: d.w + d.l, wr: d.w + d.l > 0 ? (d.w / (d.w + d.l)) * 100 : 0 })).sort((a, b) => b.pnl - a.pnl); }, [closed]);
+  const taken = filtered.filter((t) => t.status === "closed" && !t.isMissed);
+  const wins = taken.filter((t) => t.outcome === "win");
+  const totalPnl = taken.reduce((s, t) => s + num(t.pnl), 0);
+  const totalPips = taken.reduce((s, t) => s + num(t.pipsCaptured), 0);
+  const byStrategy = useMemo(() => { const m = new Map<string, { w: number; l: number; pnl: number }>(); for (const t of taken) { const k = t.strategy || "No Strategy"; if (!m.has(k)) m.set(k, { w: 0, l: 0, pnl: 0 }); const d = m.get(k)!; if (t.outcome === "win") d.w++; else if (t.outcome === "loss") d.l++; d.pnl += num(t.pnl); } return [...m.entries()].map(([name, d]) => ({ name, ...d, total: d.w + d.l, wr: d.w + d.l > 0 ? (d.w / (d.w + d.l)) * 100 : 0 })).sort((a, b) => b.pnl - a.pnl); }, [taken]);
   const whatWorkedMap = new Map<string, number>(); const mistakesMap = new Map<string, number>();
-  for (const t of closed) { for (const w of (t.whatWorked as string[]) || []) whatWorkedMap.set(w, (whatWorkedMap.get(w) || 0) + 1); for (const m of (t.mistakes as string[]) || []) mistakesMap.set(m, (mistakesMap.get(m) || 0) + 1); }
+  for (const t of taken) { for (const w of (t.whatWorked as string[]) || []) whatWorkedMap.set(w, (whatWorkedMap.get(w) || 0) + 1); for (const m of (t.mistakes as string[]) || []) mistakesMap.set(m, (mistakesMap.get(m) || 0) + 1); }
   const topWorked = [...whatWorkedMap.entries()].sort((a, b) => b[1] - a[1]);
   const topMistakes = [...mistakesMap.entries()].sort((a, b) => b[1] - a[1]);
   const withNotes = filtered.filter((t) => t.whatIDid || t.whatIShouldHaveDone || t.notes);
@@ -1099,11 +1156,11 @@ function TabularReport({ trades, reportRange, setReportRange }: { trades: Trade[
         </p>
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           <SC l="Trades" v={String(filtered.length)} />
-          <SC l="Win / Loss" v={`${wins.length} / ${closed.length - wins.length}`} />
-          <SC l="Win Rate" v={`${closed.length > 0 ? ((wins.length / closed.length) * 100).toFixed(1) : "0"}%`} p={closed.length > 0 && wins.length / closed.length >= 0.5} />
+          <SC l="Win / Loss" v={`${wins.length} / ${taken.length - wins.length}`} />
+          <SC l="Win Rate" v={`${taken.length > 0 ? ((wins.length / taken.length) * 100).toFixed(1) : "0"}%`} p={taken.length > 0 && wins.length / taken.length >= 0.5} />
           <SC l="Net P&L" v={formatCurrency(totalPnl)} p={totalPnl >= 0} />
           <SC l="Total Pips" v={totalPips.toFixed(1)} p={totalPips >= 0} />
-          <SC l="Avg / Trade" v={formatCurrency(closed.length > 0 ? totalPnl / closed.length : 0)} p={totalPnl >= 0} />
+          <SC l="Avg / Trade" v={formatCurrency(taken.length > 0 ? totalPnl / taken.length : 0)} p={totalPnl >= 0} />
         </div>
       </div>
 
@@ -1163,7 +1220,7 @@ function TabularReport({ trades, reportRange, setReportRange }: { trades: Trade[
                     <td className="px-2.5 py-1.5 text-dark-300">{t.strategy||"—"}</td>
                     <td className="px-2.5 py-1.5 text-dark-300">{t.setup||"—"}</td>
                     <td className="px-2.5 py-1.5 text-dark-300">{t.timeframe||"—"}</td>
-                    <td className="px-2.5 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.outcome==="win"?"bg-profit/15 text-profit":t.outcome==="loss"?"bg-loss/15 text-loss":"bg-dark-600 text-dark-200"}`}>{t.outcome?.toUpperCase()||t.status.toUpperCase()}</span></td>
+                    <td className="px-2.5 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${resultVariant(t)==="profit"?"bg-profit/15 text-profit":resultVariant(t)==="loss"?"bg-loss/15 text-loss":resultVariant(t)==="warn"?"bg-warn/15 text-warn":"bg-dark-600 text-dark-200"}`}>{resultLabel(t)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -1195,7 +1252,7 @@ function TabularReport({ trades, reportRange, setReportRange }: { trades: Trade[
                     <td className="px-2.5 py-2 text-dark-500">{i+1}</td>
                     <td className="px-2.5 py-2 text-dark-200 print:text-gray-700 whitespace-nowrap">{fmtSes(t)}<br/><span className="text-dark-400 text-[10px]">{fmtDate(t.entryDate)}</span></td>
                     <td className="px-2.5 py-2 text-white print:text-black font-semibold">{t.symbol}</td>
-                    <td className="px-2.5 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.outcome==="win"?"bg-profit/15 text-profit":t.outcome==="loss"?"bg-loss/15 text-loss":"bg-dark-600 text-dark-200"}`}>{t.outcome?.toUpperCase()||t.status.toUpperCase()}</span></td>
+                    <td className="px-2.5 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${resultVariant(t)==="profit"?"bg-profit/15 text-profit":resultVariant(t)==="loss"?"bg-loss/15 text-loss":resultVariant(t)==="warn"?"bg-warn/15 text-warn":"bg-dark-600 text-dark-200"}`}>{resultLabel(t)}</span></td>
                     <td className="px-2.5 py-2">{t.pnl?<span className={`font-semibold ${num(t.pnl)>=0?"text-profit":"text-loss"}`}>{formatCurrency(num(t.pnl))}</span>:"—"}</td>
                     <td className="px-2.5 py-2 text-dark-200 print:text-gray-700 max-w-[200px]"><p className="whitespace-pre-line leading-relaxed">{t.whatIDid||"—"}</p></td>
                     <td className="px-2.5 py-2 text-dark-200 print:text-gray-700 max-w-[200px]"><p className="whitespace-pre-line leading-relaxed">{t.whatIShouldHaveDone||"—"}</p></td>
@@ -1226,7 +1283,7 @@ function TabularReport({ trades, reportRange, setReportRange }: { trades: Trade[
                     <td className="px-2.5 py-2 text-dark-200 print:text-gray-700 whitespace-nowrap">{fmtSes(t)}<br/><span className="text-dark-400 text-[10px]">{fmtDate(t.entryDate)}</span></td>
                     <td className="px-2.5 py-2 text-white print:text-black font-semibold">{t.symbol}</td>
                     <td className="px-2.5 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.direction==="long"?"bg-profit/15 text-profit":"bg-loss/15 text-loss"}`}>{t.direction==="long"?"BUY":"SELL"}</span></td>
-                    <td className="px-2.5 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.outcome==="win"?"bg-profit/15 text-profit":t.outcome==="loss"?"bg-loss/15 text-loss":"bg-dark-600 text-dark-200"}`}>{t.outcome?.toUpperCase()||t.status.toUpperCase()}</span></td>
+                    <td className="px-2.5 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${resultVariant(t)==="profit"?"bg-profit/15 text-profit":resultVariant(t)==="loss"?"bg-loss/15 text-loss":resultVariant(t)==="warn"?"bg-warn/15 text-warn":"bg-dark-600 text-dark-200"}`}>{resultLabel(t)}</span></td>
                     <td className="px-2.5 py-2">{t.pnl?<span className={`font-semibold ${num(t.pnl)>=0?"text-profit":"text-loss"}`}>{formatCurrency(num(t.pnl))}</span>:"—"}</td>
                     <td className="px-2.5 py-2 max-w-[180px]">
                       {((t.whatWorked as string[])||[]).length>0?(

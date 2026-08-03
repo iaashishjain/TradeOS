@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
         <Input type="date" value={dateRange.start} onChange={(e) => { setDateRange((p) => ({ ...p, start: e.target.value })); setQuickRange(""); }} className="!py-1.5 text-xs !w-36" />
         <span className="text-dark-500">→</span>
         <Input type="date" value={dateRange.end} onChange={(e) => { setDateRange((p) => ({ ...p, end: e.target.value })); setQuickRange(""); }} className="!py-1.5 text-xs !w-36" />
-        <span className="text-xs text-dark-400">{filteredTrades.filter((t) => t.status === "closed").length} closed trades</span>
+        <span className="text-xs text-dark-400">{filteredTrades.filter((t) => t.status === "closed" && !t.isMissed).length} taken trades</span>
       </div>
 
       {/* Tabs */}
@@ -91,7 +91,7 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {loading ? (
+      {(loading || !settings) ? (
         <Card><div className="h-48 animate-pulse bg-dark-700 rounded" /></Card>
       ) : (
         <>
@@ -109,9 +109,9 @@ export default function AnalyticsPage() {
 
 /* ═════════════════ INSIGHTS TAB ═════════════════ */
 function InsightsTab({ engine, settings }: { engine: InsightEngine; settings: { startingBalance?: string } | null }) {
-  const summary = engine.generateSummary();
-  const metrics = engine.calculateMetrics();
-  const equity = engine.getEquityCurve(num(settings?.startingBalance) || 10000);
+  const summary = useMemo(() => engine.generateSummary(), [engine]);
+  const metrics = useMemo(() => engine.calculateMetrics(), [engine]);
+  const equity = useMemo(() => engine.getEquityCurve(num(settings?.startingBalance) || 10000), [engine, settings?.startingBalance]);
   const dq = engine.calculateDecisionQuality();
   const patterns = engine.detectPatterns();
   const mistakes = engine.analyzeMistakes();
@@ -198,6 +198,46 @@ function InsightsTab({ engine, settings }: { engine: InsightEngine; settings: { 
           )}
         </Card>
       </div>
+
+      {/* Missed Trades Insight */}
+      {(() => {
+        const missed = engine.analyzeMissedTrades();
+        if (missed.totalMissed === 0) return null;
+        return (
+          <Card>
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-warn" />
+              Missed Trades Insight
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <div className="text-center p-2 bg-dark-800/50 rounded-lg">
+                <p className="text-lg font-bold text-warn">{missed.totalMissed}</p>
+                <p className="text-[10px] text-dark-400 uppercase">Total Missed</p>
+              </div>
+              <div className="text-center p-2 bg-dark-800/50 rounded-lg">
+                <p className="text-lg font-bold text-profit">+{formatCurrency(missed.missedProfitAvoided)}</p>
+                <p className="text-[10px] text-dark-400 uppercase">Profit Missed</p>
+              </div>
+              <div className="text-center p-2 bg-dark-800/50 rounded-lg">
+                <p className="text-lg font-bold text-profit">+{formatCurrency(missed.missedLossAvoided)}</p>
+                <p className="text-[10px] text-dark-400 uppercase">Loss Avoided</p>
+              </div>
+              <div className="text-center p-2 bg-dark-800/50 rounded-lg">
+                <p className={`text-lg font-bold ${missed.netAvoided >= 0 ? "text-profit" : "text-loss"}`}>{formatCurrency(missed.netAvoided)}</p>
+                <p className="text-[10px] text-dark-400 uppercase">Net Impact</p>
+              </div>
+            </div>
+            <p className="text-xs text-dark-400">
+              {missed.netAvoided > 0
+                ? `You missed ${missed.missedWins} winning trades worth ${formatCurrency(missed.missedProfitAvoided)}. But you also avoided ${missed.missedLosses} losing trades saving ${formatCurrency(missed.missedLossAvoided)}.`
+                : missed.netAvoided < 0
+                ? `Good decision-making: by missing ${missed.missedLosses} losing trades, you avoided ${formatCurrency(missed.missedLossAvoided)} in losses — more than the ${formatCurrency(missed.missedProfitAvoided)} in profits you missed.`
+                : `You missed ${missed.totalMissed} trades with a neutral net impact.`
+              }
+            </p>
+          </Card>
+        );
+      })()}
     </div>
   );
 }
@@ -346,7 +386,7 @@ function MonthStats({ trades, year, month }: { trades: Trade[]; year: number; mo
   const start = new Date(year, month, 1);
   const end = new Date(year, month + 1, 0, 23, 59, 59);
   const monthTrades = trades.filter((t) => { const d = new Date(t.entryDate); return d >= start && d <= end; });
-  const closed = monthTrades.filter((t) => t.status === "closed");
+  const closed = monthTrades.filter((t) => t.status === "closed" && !t.isMissed);
   const wins = closed.filter((t) => t.outcome === "win");
   const pnl = closed.reduce((s, t) => s + num(t.pnl), 0);
   return (

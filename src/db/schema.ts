@@ -113,6 +113,7 @@ export const trades = pgTable("trades", {
 
   playbookId: uuid("playbook_id"),
   accountId: uuid("account_id"),
+  isMissed: boolean("is_missed").default(false).notNull(),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

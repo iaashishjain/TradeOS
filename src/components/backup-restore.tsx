@@ -2,9 +2,6 @@
 
 import { useState, useRef, useCallback } from "react";
 import { Card, Button, Modal } from "@/components/ui";
-import { Filesystem, Directory } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
-import { Capacitor } from "@capacitor/core";
 
 type Status = "idle" | "backing-up" | "downloading" | "validating" | "confirming" | "restoring" | "success" | "error";
 
@@ -57,47 +54,23 @@ export function BackupRestore() {
       setMessage("Starting download...");
 
       // Create download link
+      const url = URL.createObjectURL(blob);
       const dateStr = new Date().toISOString().split("T")[0];
-const filename = `tradeos-backup-${dateStr}.json`;
+      const filename = `tradeos-backup-${dateStr}.json`;
 
-const isNative = Capacitor.isNativePlatform();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
 
-if (isNative) {
-  const base64Data = btoa(
-    unescape(encodeURIComponent(JSON.stringify(data, null, 2)))
-  );
+      // Trigger download
+      a.click();
 
-  await Filesystem.writeFile({
-    path: filename,
-    data: base64Data,
-    directory: Directory.Documents,
-  });
-
-  const fileUri = await Filesystem.getUri({
-    path: filename,
-    directory: Directory.Documents,
-  });
-
-  await Share.share({
-    title: "TradeOS Backup",
-    url: fileUri.uri,
-  });
-} else {
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.style.display = "none";
-  document.body.appendChild(a);
-
-  a.click();
-
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+      // Cleanup after a delay to ensure download starts
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
       setProgress(100);
       setStatus("success");

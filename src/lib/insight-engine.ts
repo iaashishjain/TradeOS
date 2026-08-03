@@ -148,13 +148,17 @@ export interface InsightSummary {
 // ── Main Insight Engine Class ──
 export class InsightEngine {
   private trades: Trade[];
-  private closedTrades: Trade[];
+  private closedTrades: Trade[];  // Only taken trades (not missed)
+  private allClosed: Trade[];     // All closed including missed
   private wins: Trade[];
   private losses: Trade[];
+  private missedTrades: Trade[];
 
   constructor(trades: Trade[]) {
     this.trades = trades;
-    this.closedTrades = trades.filter((t) => t.status === "closed");
+    this.allClosed = trades.filter((t) => t.status === "closed");
+    this.closedTrades = this.allClosed.filter((t) => !t.isMissed);  // Exclude missed from stats
+    this.missedTrades = this.allClosed.filter((t) => t.isMissed);
     this.wins = this.closedTrades.filter((t) => t.outcome === "win");
     this.losses = this.closedTrades.filter((t) => t.outcome === "loss");
   }
@@ -1049,5 +1053,31 @@ export class InsightEngine {
         pnl: round(trades.reduce((sum, t) => sum + num(t.pnl), 0)),
       };
     });
+  }
+
+  // ── Missed Trade Analysis ──
+  analyzeMissedTrades(): {
+    totalMissed: number;
+    missedWins: number;
+    missedLosses: number;
+    missedProfitAvoided: number;
+    missedLossAvoided: number;
+    netAvoided: number;
+    trades: Trade[];
+  } {
+    const missedWins = this.missedTrades.filter((t) => t.outcome === "win");
+    const missedLosses = this.missedTrades.filter((t) => t.outcome === "loss");
+    const missedProfitAvoided = missedWins.reduce((s, t) => s + num(t.pnl), 0);
+    const missedLossAvoided = missedLosses.reduce((s, t) => s + Math.abs(num(t.pnl)), 0);
+
+    return {
+      totalMissed: this.missedTrades.length,
+      missedWins: missedWins.length,
+      missedLosses: missedLosses.length,
+      missedProfitAvoided: round(missedProfitAvoided),
+      missedLossAvoided: round(missedLossAvoided),
+      netAvoided: round(missedProfitAvoided - missedLossAvoided),
+      trades: this.missedTrades,
+    };
   }
 }

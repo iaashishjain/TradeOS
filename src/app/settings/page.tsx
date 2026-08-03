@@ -104,7 +104,7 @@ export default function SettingsPage() {
       const start = subMonths(new Date(), i);
       const ms = new Date(start.getFullYear(), start.getMonth(), 1);
       const me = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
-      const mt = trades.filter((t) => { if (t.status !== "closed" || !t.exitDate) return false; const d = new Date(t.exitDate); return d >= ms && d <= me; });
+      const mt = trades.filter((t) => { if (t.status !== "closed" || !t.exitDate || t.isMissed) return false; const d = new Date(t.exitDate); return d >= ms && d <= me; });
       const wins = mt.filter((t) => t.outcome === "win").length;
       const pnl = mt.reduce((s, t) => s + num(t.pnl), 0);
       months.push({ label: format(ms, "MMM yyyy"), pnl: Math.round(pnl * 100) / 100, trades: mt.length, wr: mt.length > 0 ? Math.round((wins / mt.length) * 100) : 0 });

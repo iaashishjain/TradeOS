@@ -9,9 +9,24 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get("type") || "summary";
     
-    // Fetch all trades
-    const allTrades = await db.select().from(trades).orderBy(desc(trades.entryDate));
-    const engine = new InsightEngine(allTrades);
+    // Fetch trades without screenshot blobs for performance
+    const allTrades = await db.select({
+      id: trades.id, symbol: trades.symbol, marketType: trades.marketType,
+      direction: trades.direction, status: trades.status, outcome: trades.outcome,
+      session: trades.session, entryPrice: trades.entryPrice, exitPrice: trades.exitPrice,
+      stopLoss: trades.stopLoss, takeProfit: trades.takeProfit, positionSize: trades.positionSize,
+      accountSize: trades.accountSize, riskAmount: trades.riskAmount, riskPercent: trades.riskPercent,
+      pipsCaptured: trades.pipsCaptured, pnl: trades.pnl, pnlPercent: trades.pnlPercent,
+      fees: trades.fees, riskRewardRatio: trades.riskRewardRatio, rMultiple: trades.rMultiple,
+      entryDate: trades.entryDate, exitDate: trades.exitDate,
+      strategy: trades.strategy, setup: trades.setup, timeframe: trades.timeframe,
+      notes: trades.notes, tags: trades.tags, whatWorked: trades.whatWorked,
+      mistakes: trades.mistakes, whatIDid: trades.whatIDid, whatIShouldHaveDone: trades.whatIShouldHaveDone,
+      emotionEntry: trades.emotionEntry, emotionExit: trades.emotionExit, confidence: trades.confidence,
+      isMissed: trades.isMissed, accountId: trades.accountId, playbookId: trades.playbookId,
+      createdAt: trades.createdAt, updatedAt: trades.updatedAt,
+    }).from(trades).orderBy(desc(trades.entryDate));
+    const engine = new InsightEngine(allTrades as any);
     
     // Fetch settings for balance
     const settings = await db.select().from(accountSettings);
@@ -85,7 +100,7 @@ export async function GET(req: NextRequest) {
         if (!trade) {
           return NextResponse.json({ error: "Trade not found" }, { status: 404 });
         }
-        return NextResponse.json(engine.findSimilarTrades(trade));
+        return NextResponse.json(engine.findSimilarTrades(trade as any));
       }
       
       case "compareTrades": {
@@ -99,7 +114,7 @@ export async function GET(req: NextRequest) {
         if (!tradeA || !tradeB) {
           return NextResponse.json({ error: "Trade(s) not found" }, { status: 404 });
         }
-        return NextResponse.json(engine.compareTrades(tradeA, tradeB));
+        return NextResponse.json(engine.compareTrades(tradeA as any, tradeB as any));
       }
       
       default:

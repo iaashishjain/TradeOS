@@ -1,41 +1,37 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Trade, Playbook, DailyReview, AccountSettings, CustomOption } from "@/db/schema";
 
-// ── Global revision counter — increments on every mutation ──
-// Every hook subscribes to this. When it increments, all hooks refetch.
-let tradesRev = 0;
-let settingsRev = 0;
-let optionsRev = 0;
-let playbooksRev = 0;
-let reviewsRev = 0;
+// ── Shared trade store ──
+// Single source of truth. All useTrades instances read/write from this.
+// Mutations update the store directly. Fetches replace it.
+let tradeStore: Trade[] = [];
+let tradeStoreUrl: string | null = null;
+let tradeStoreLoaded = false;
+const tradeListeners = new Set<() => void>();
+function notifyTrades() { tradeListeners.forEach((fn) => fn()); }
 
-const listeners = new Set<() => void>();
-function subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
-function notify() { listeners.forEach((fn) => fn()); }
-
-function bump(type: "trades" | "settings" | "options" | "playbooks" | "reviews") {
-  if (type === "trades") tradesRev++;
-  else if (type === "settings") settingsRev++;
-  else if (type === "options") optionsRev++;
-  else if (type === "playbooks") playbooksRev++;
-  else if (type === "reviews") reviewsRev++;
-  notify();
+function setTradeStore(trades: Trade[], url: string) {
+  tradeStore = trades;
+  tradeStoreUrl = url;
+  tradeStoreLoaded = true;
+  notifyTrades();
 }
 
-function getSnapshot(type: "trades" | "settings" | "options" | "playbooks" | "reviews") {
-  if (type === "trades") return tradesRev;
-  if (type === "settings") return settingsRev;
-  if (type === "options") return optionsRev;
-  if (type === "playbooks") return playbooksRev;
-  return reviewsRev;
+function updateTradeInStore(updated: Trade) {
+  tradeStore = tradeStore.map((t) => t.id === updated.id ? updated : t);
+  notifyTrades();
 }
 
-function useRev(type: "trades" | "settings" | "options" | "playbooks" | "reviews") {
-  const snap = useCallback(() => getSnapshot(type), [type]);
-  const serverSnap = useCallback(() => 0, []);
-  return useSyncExternalStore(subscribe, snap, serverSnap);
+function addTradeToStore(trade: Trade) {
+  tradeStore = [trade, ...tradeStore];
+  notifyTrades();
+}
+
+function removeTradeFromStore(id: string) {
+  tradeStore = tradeStore.filter((t) => t.id !== id);
+  notifyTrades();
 }
 
 // ── Trade Filters ──
@@ -57,48 +53,51 @@ export interface TradeFilters {
 
 // ── Trades Hook ──
 export function useTrades(filters: TradeFilters = {}) {
-  const rev = useRev("trades");
   const isReady = filters.accountId !== undefined;
+  const [, forceRender] = useState(0);
+  const fetchingRef = useRef(false);
 
   const url = (() => {
     if (!isReady) return null;
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value) params.append(key, value); });
-    const q = params.toString();
-    return `/api/trades${q ? `?${q}` : ""}`;
+    params.set("slim", "1"); // Exclude screenshot blobs from list queries
+    return `/api/trades?${params.toString()}`;
   })();
 
-  const cached = url ? (memCache.get(url) as Trade[] | undefined) : undefined;
-  const [trades, setTrades] = useState<Trade[]>(cached || []);
-  const [loading, setLoading] = useState(!cached && isReady);
-  const [error, setError] = useState<string | null>(null);
+  // Subscribe to store changes
+  useEffect(() => {
+    const listener = () => forceRender((n) => n + 1);
+    tradeListeners.add(listener);
+    return () => { tradeListeners.delete(listener); };
+  }, []);
 
+  // Fetch when URL changes or when store doesn't match current URL
   useEffect(() => {
     if (!url) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!memCache.has(url)) setLoading(true);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        memCache.set(url, json);
-        if (!cancelled) { setTrades(json); setLoading(false); }
-      } catch (e) {
-        if (!cancelled && e instanceof Error) setError(e.message);
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [url, rev]);
+    if (tradeStoreUrl === url && tradeStoreLoaded) return; // already have data for this URL
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    fetch(url)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((json) => { setTradeStore(json, url); })
+      .catch(() => {})
+      .finally(() => { fetchingRef.current = false; });
+  }, [url]);
+
+  const refetch = useCallback(() => {
+    if (!url) return;
+    fetch(url)
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((json) => { setTradeStore(json, url); })
+      .catch(() => {});
+  }, [url]);
 
   const createTrade = useCallback(async (trade: Record<string, unknown>) => {
     const res = await fetch("/api/trades", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(trade) });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
     const created = await res.json();
-    setTrades((p) => [created, ...p]);
-    clearCache("/api/trades");
-    bump("trades");
+    addTradeToStore(created);
     return created;
   }, []);
 
@@ -106,89 +105,69 @@ export function useTrades(filters: TradeFilters = {}) {
     const res = await fetch("/api/trades", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(trade) });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
     const updated = await res.json();
-    setTrades((p) => p.map((t) => (t.id === updated.id ? updated : t)));
-    clearCache("/api/trades");
-    bump("trades");
+    updateTradeInStore(updated);
     return updated;
   }, []);
 
   const deleteTrade = useCallback(async (id: string) => {
     const res = await fetch(`/api/trades?id=${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed");
-    setTrades((p) => p.filter((t) => t.id !== id));
-    clearCache("/api/trades");
-    bump("trades");
+    removeTradeFromStore(id);
   }, []);
 
-  return { trades, loading, error, refetch: () => bump("trades"), createTrade, updateTrade, deleteTrade };
+  // Fetch full trade with screenshots for detail view
+  const fetchFullTrade = useCallback(async (id: string): Promise<Trade | null> => {
+    try {
+      const res = await fetch(`/api/trades?accountId=${filters.accountId}`);
+      if (!res.ok) return null;
+      const all: Trade[] = await res.json();
+      return all.find((t) => t.id === id) || null;
+    } catch { return null; }
+  }, [filters.accountId]);
+
+  // loading = true when: (1) settings not loaded yet OR (2) trades not fetched yet for this account
+  const loading = !isReady || !tradeStoreLoaded;
+
+  return { trades: tradeStore, loading, error: null as string | null, refetch, createTrade, updateTrade, deleteTrade, fetchFullTrade };
 }
 
-// ── Simple cross-request memory cache ──
-const memCache = new Map<string, unknown>();
+// ── Generic data hook ──
+function useData<T>(url: string) {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
 
-function clearCache(prefix: string) {
-  for (const key of memCache.keys()) {
-    if (key.startsWith(prefix)) memCache.delete(key);
-  }
-}
-
-// ── Generic fetch with revision tracking ──
-function useFetchWithRev<T>(url: string, revType: "settings" | "options" | "playbooks" | "reviews") {
-  const rev = useRev(revType);
-  const cached = memCache.get(url) as T | undefined;
-  const [data, setData] = useState<T | null>(cached ?? null);
-  const [loading, setLoading] = useState(!cached);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!memCache.has(url)) setLoading(true);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        memCache.set(url, json);
-        if (!cancelled) { setData(json); setLoading(false); }
-      } catch (e) {
-        if (!cancelled && e instanceof Error) setError(e.message);
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [url, rev]);
-
-  const setDataWrapped = useCallback((fn: (prev: T | null) => T | null) => {
-    setData((prev) => {
-      const next = fn(prev);
-      if (next) memCache.set(url, next);
-      return next;
-    });
+  const doFetch = useCallback(() => {
+    if (!loadedRef.current) setLoading(true);
+    fetch(url)
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((json) => { setData(json); setLoading(false); loadedRef.current = true; })
+      .catch(() => { setLoading(false); });
   }, [url]);
 
-  return { data, loading, error, setData: setDataWrapped };
+  useEffect(() => { doFetch(); }, [doFetch]);
+
+  return { data, loading, setData, refetch: doFetch };
 }
 
-// ── Custom Options Hook ──
+// ── Custom Options ──
 export function useCustomOptions(type?: string) {
   const url = type ? `/api/custom-options?type=${type}` : "/api/custom-options";
-  const { data, loading, error, setData } = useFetchWithRev<CustomOption[]>(url, "options");
+  const { data, loading, setData, refetch } = useData<CustomOption[]>(url);
 
-  const createOption = useCallback(async (option: { type: string; value: string; color?: string }) => {
-    const res = await fetch("/api/custom-options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(option) });
+  const createOption = useCallback(async (opt: { type: string; value: string; color?: string }) => {
+    const res = await fetch("/api/custom-options", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opt) });
     if (!res.ok) throw new Error("Failed");
     const created = await res.json();
     setData((p) => (p ? [...p, created] : [created]));
-    bump("options");
     return created;
   }, [setData]);
 
-  const updateOption = useCallback(async (option: { id: string; value?: string; color?: string }) => {
-    const res = await fetch("/api/custom-options", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(option) });
+  const updateOption = useCallback(async (opt: { id: string; value?: string; color?: string }) => {
+    const res = await fetch("/api/custom-options", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opt) });
     if (!res.ok) throw new Error("Failed");
     const updated = await res.json();
     setData((p) => (p ? p.map((o) => (o.id === updated.id ? updated : o)) : p));
-    bump("options");
     return updated;
   }, [setData]);
 
@@ -196,89 +175,55 @@ export function useCustomOptions(type?: string) {
     const res = await fetch(`/api/custom-options?id=${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed");
     setData((p) => (p ? p.filter((o) => o.id !== id) : p));
-    bump("options");
   }, [setData]);
 
   const incrementUsage = useCallback(async (id: string) => {
     await fetch("/api/custom-options", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
   }, []);
 
-  return { options: data || [], loading, error, refetch: () => bump("options"), createOption, updateOption, deleteOption, incrementUsage };
+  return { options: data || [], loading, error: null, refetch, createOption, updateOption, deleteOption, incrementUsage };
 }
 
-// ── Playbooks Hook ──
+// ── Playbooks ──
 export function usePlaybooks() {
-  const { data, loading, error, setData } = useFetchWithRev<Playbook[]>("/api/playbooks", "playbooks");
-
+  const { data, loading, setData, refetch } = useData<Playbook[]>("/api/playbooks");
   const createPlaybook = useCallback(async (pb: Record<string, unknown>) => {
     const res = await fetch("/api/playbooks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pb) });
-    if (!res.ok) throw new Error("Failed");
-    const created = await res.json();
-    setData((p) => (p ? [created, ...p] : [created]));
-    bump("playbooks");
-    return created;
+    if (!res.ok) throw new Error("Failed"); const c = await res.json(); setData((p) => (p ? [c, ...p] : [c])); return c;
   }, [setData]);
-
   const updatePlaybook = useCallback(async (pb: Record<string, unknown>) => {
     const res = await fetch("/api/playbooks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pb) });
-    if (!res.ok) throw new Error("Failed");
-    const updated = await res.json();
-    setData((p) => (p ? p.map((x) => (x.id === updated.id ? updated : x)) : p));
-    bump("playbooks");
-    return updated;
+    if (!res.ok) throw new Error("Failed"); const u = await res.json(); setData((p) => (p ? p.map((x) => (x.id === u.id ? u : x)) : p)); return u;
   }, [setData]);
-
   const deletePlaybook = useCallback(async (id: string) => {
     const res = await fetch(`/api/playbooks?id=${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Failed");
-    setData((p) => (p ? p.filter((x) => x.id !== id) : p));
-    bump("playbooks");
+    if (!res.ok) throw new Error("Failed"); setData((p) => (p ? p.filter((x) => x.id !== id) : p));
   }, [setData]);
-
-  return { playbooks: data || [], loading, error, refetch: () => bump("playbooks"), createPlaybook, updatePlaybook, deletePlaybook };
+  return { playbooks: data || [], loading, error: null, refetch, createPlaybook, updatePlaybook, deletePlaybook };
 }
 
-// ── Reviews Hook ──
+// ── Reviews ──
 export function useReviews() {
-  const { data, loading, error, setData } = useFetchWithRev<DailyReview[]>("/api/reviews", "reviews");
-
+  const { data, loading, setData, refetch } = useData<DailyReview[]>("/api/reviews");
   const createReview = useCallback(async (r: Record<string, unknown>) => {
     const res = await fetch("/api/reviews", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
-    if (!res.ok) throw new Error("Failed");
-    const created = await res.json();
-    setData((p) => (p ? [created, ...p] : [created]));
-    bump("reviews");
-    return created;
+    if (!res.ok) throw new Error("Failed"); const c = await res.json(); setData((p) => (p ? [c, ...p] : [c])); return c;
   }, [setData]);
-
   const updateReview = useCallback(async (r: Record<string, unknown>) => {
     const res = await fetch("/api/reviews", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
-    if (!res.ok) throw new Error("Failed");
-    const updated = await res.json();
-    setData((p) => (p ? p.map((x) => (x.id === updated.id ? updated : x)) : p));
-    bump("reviews");
-    return updated;
+    if (!res.ok) throw new Error("Failed"); const u = await res.json(); setData((p) => (p ? p.map((x) => (x.id === u.id ? u : x)) : p)); return u;
   }, [setData]);
-
   const deleteReview = useCallback(async (id: string) => {
     const res = await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Failed");
-    setData((p) => (p ? p.filter((x) => x.id !== id) : p));
-    bump("reviews");
+    if (!res.ok) throw new Error("Failed"); setData((p) => (p ? p.filter((x) => x.id !== id) : p));
   }, [setData]);
-
-  return { reviews: data || [], loading, error, refetch: () => bump("reviews"), createReview, updateReview, deleteReview };
+  return { reviews: data || [], loading, error: null, refetch, createReview, updateReview, deleteReview };
 }
 
-// ── Settings Hook (multi-account) ──
-interface SettingsResponse {
-  accounts: AccountSettings[];
-  default: AccountSettings;
-}
-
+// ── Settings ──
+interface SettingsResponse { accounts: AccountSettings[]; default: AccountSettings; }
 export function useSettings() {
-  const { data, loading, error, setData } = useFetchWithRev<SettingsResponse>("/api/settings", "settings");
-
+  const { data, loading, setData, refetch } = useData<SettingsResponse>("/api/settings");
   const defaultAccount = data?.default || null;
   const accounts = data?.accounts || [];
 
@@ -287,7 +232,6 @@ export function useSettings() {
     if (!res.ok) throw new Error("Failed");
     const updated = await res.json();
     setData((prev) => prev ? { accounts: prev.accounts.map((a) => (a.id === updated.id ? updated : a)), default: prev.default.id === updated.id ? updated : prev.default } : prev);
-    bump("settings");
   }, [setData]);
 
   const createAccount = useCallback(async (account: Record<string, unknown>) => {
@@ -295,14 +239,12 @@ export function useSettings() {
     if (!res.ok) throw new Error("Failed");
     const created = await res.json();
     setData((prev) => prev ? { accounts: [...prev.accounts, created], default: prev.default } : prev);
-    bump("settings");
   }, [setData]);
 
   const deleteAccount = useCallback(async (id: string) => {
     const res = await fetch(`/api/settings?id=${id}`, { method: "DELETE" });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as {error?:string}).error || "Failed"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).error || "Failed"); }
     setData((prev) => prev ? { accounts: prev.accounts.filter((a) => a.id !== id), default: prev.default } : prev);
-    bump("settings");
   }, [setData]);
 
   const setDefaultAccount = useCallback(async (id: string) => {
@@ -313,11 +255,12 @@ export function useSettings() {
       const accs = prev.accounts.map((a) => ({ ...a, isDefault: a.id === id }));
       return { accounts: accs, default: accs.find((a) => a.id === id) || prev.default };
     });
-    clearCache("/api/settings");
-    clearCache("/api/trades");
-    bump("settings");
-    bump("trades");
+    // Reset trade store so it refetches for new account
+    tradeStoreUrl = null;
+    tradeStoreLoaded = false;
+    tradeStore = [];
+    notifyTrades();
   }, [setData]);
 
-  return { settings: defaultAccount, accounts, loading, error, refetch: () => bump("settings"), updateSettings: updateAccount, createAccount, deleteAccount, setDefaultAccount };
+  return { settings: defaultAccount, accounts, loading, error: null, refetch, updateSettings: updateAccount, createAccount, deleteAccount, setDefaultAccount };
 }

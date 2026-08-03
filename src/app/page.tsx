@@ -12,6 +12,8 @@ import {
   formatPercent,
   fmtDateFull,
   fmtDateTime,
+  resultLabel,
+  resultVariant,
 } from "@/lib/calculations";
 import { PageShell, Card, Badge, Button, Input } from "@/components/ui";
 import { exportDashboardPDF } from "@/lib/pdf-export";
@@ -20,8 +22,8 @@ import { format, subDays, subMonths, startOfYear } from "date-fns";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const { settings, loading: settingsLoading } = useSettings();
-  const { trades, loading: tradesLoading } = useTrades({ accountId: settings?.id });
+  const { settings } = useSettings();
+  const { trades, loading } = useTrades({ accountId: settings?.id });
   const [dateRange, setDateRange] = useState({ start: format(subMonths(new Date(), 3), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
   const [quickRange, setQuickRange] = useState("3M");
 
@@ -32,54 +34,53 @@ export default function DashboardPage() {
     return d >= new Date(dateRange.start) && d <= new Date(dateRange.end + "T23:59:59");
   }), [trades, dateRange]);
 
-  const startingBalance = settings?.startingBalance ? num(settings.startingBalance) : 0;
+  const startingBalance = num(settings?.startingBalance) || 10000;
   const currency = settings?.currency || "USD";
-  const metrics = useMemo(
-  () => calculatePerformanceMetrics(filteredTrades),
-  [filteredTrades]
-);
-
-const equityCurve = useMemo(
-  () => calculateEquityCurve(filteredTrades, startingBalance),
-  [filteredTrades, startingBalance]
-);
-
-const dailyPnl = useMemo(
-  () => calculateDailyPnl(filteredTrades),
-  [filteredTrades]
-);
-
-const marketData = useMemo(
-  () => getTradesByMarket(filteredTrades),
-  [filteredTrades]
-);
+  const metrics = useMemo(() => calculatePerformanceMetrics(filteredTrades), [filteredTrades]);
+  const equityCurve = useMemo(() => calculateEquityCurve(filteredTrades, startingBalance), [filteredTrades, startingBalance]);
+  const dailyPnl = useMemo(() => calculateDailyPnl(filteredTrades), [filteredTrades]);
+  const marketData = useMemo(() => getTradesByMarket(filteredTrades), [filteredTrades]);
 
   const engine = useMemo(() => new InsightEngine(filteredTrades), [filteredTrades]);
-
-const dq = useMemo(() => engine.calculateDecisionQuality(), [engine]);
-const summary = useMemo(() => engine.generateSummary(), [engine]);
-const patterns = useMemo(() => engine.detectPatterns(), [engine]);
-const mistakes = useMemo(() => engine.analyzeMistakes(), [engine]);
-const whatWorked = useMemo(() => engine.analyzeWhatWorked(), [engine]);
+  const dq = useMemo(() => engine.calculateDecisionQuality(), [engine]);
+  const summary = useMemo(() => engine.generateSummary(), [engine]);
+  const patterns = useMemo(() => engine.detectPatterns(), [engine]);
+  const mistakes = useMemo(() => engine.analyzeMistakes(), [engine]);
+  const whatWorked = useMemo(() => engine.analyzeWhatWorked(), [engine]);
 
   const currentBalance = startingBalance + metrics.totalPnl;
   const returnPct = startingBalance > 0 ? ((currentBalance - startingBalance) / startingBalance) * 100 : 0;
   const openTrades = filteredTrades.filter((t) => t.status === "open");
-  const closedTrades = filteredTrades.filter((t) => t.status === "closed");
+  const closedTrades = filteredTrades.filter((t) => t.status === "closed" && !t.isMissed);
   const recentTrades = [...openTrades, ...closedTrades].slice(0, 6);
+
+  // Missed trades stats (within date range)
+  const missedData = useMemo(() => {
+    const missed = filteredTrades.filter((t) => t.isMissed);
+    const mWins = missed.filter((t) => t.outcome === "win");
+    const mLosses = missed.filter((t) => t.outcome === "loss");
+    return {
+      total: missed.length,
+      wins: mWins.length,
+      losses: mLosses.length,
+      profitMissed: mWins.reduce((s, t) => s + num(t.pnl), 0),
+      lossAvoided: mLosses.reduce((s, t) => s + Math.abs(num(t.pnl)), 0),
+      trades: missed.slice(0, 4),
+    };
+  }, [filteredTrades]);
 
   const pieData = Object.entries(marketData).map(([name, data]) => ({ name: name.toUpperCase(), value: data.count }));
 
   // Today stats
   const today = format(new Date(), "yyyy-MM-dd");
-  const todayTrades = trades.filter((t) => t.exitDate && format(new Date(t.exitDate), "yyyy-MM-dd") === today);
+  const todayTrades = trades.filter((t) => !t.isMissed && t.exitDate && format(new Date(t.exitDate), "yyyy-MM-dd") === today);
   const todayPnl = todayTrades.reduce((sum, t) => sum + num(t.pnl), 0);
 
   // This week stats
   const weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
-  const weekTrades = trades.filter((t) => t.exitDate && new Date(t.exitDate) >= weekStart);
+  const weekTrades = trades.filter((t) => !t.isMissed && t.exitDate && new Date(t.exitDate) >= weekStart);
   const weekPnl = weekTrades.reduce((sum, t) => sum + num(t.pnl), 0);
 
   // Best and worst trade
@@ -104,7 +105,9 @@ const whatWorked = useMemo(() => engine.analyzeWhatWorked(), [engine]);
     return { streak: current, type };
   }, [closedTrades]);
 
-  if (settingsLoading || tradesLoading) {
+  // Show skeleton until both settings AND trades are loaded
+  const isReady = settings !== null && !loading;
+  if (!isReady) {
     return (
       <PageShell title="Dashboard">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -342,6 +345,51 @@ const whatWorked = useMemo(() => engine.analyzeWhatWorked(), [engine]);
           </div>
         </Card>
       </div>
+
+      {/* Missed Trades Section */}
+      {missedData.total > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-warn" />
+              Missed Trades
+            </h3>
+            <Link href="/trades" className="text-xs text-accent-400 hover:text-accent-300">View All →</Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="text-center p-2.5 bg-dark-800/50 rounded-lg">
+              <p className="text-lg font-bold text-warn">{missedData.total}</p>
+              <p className="text-[10px] text-dark-400 uppercase">Total Missed</p>
+            </div>
+            <div className="text-center p-2.5 bg-dark-800/50 rounded-lg">
+              <p className="text-lg font-bold text-warn">{missedData.wins} W / {missedData.losses} L</p>
+              <p className="text-[10px] text-dark-400 uppercase">Missed W/L</p>
+            </div>
+            <div className="text-center p-2.5 bg-dark-800/50 rounded-lg">
+              <p className="text-lg font-bold text-profit">+{formatCurrency(missedData.profitMissed, currency)}</p>
+              <p className="text-[10px] text-dark-400 uppercase">Profit Missed</p>
+            </div>
+            <div className="text-center p-2.5 bg-dark-800/50 rounded-lg">
+              <p className="text-lg font-bold text-profit">+{formatCurrency(missedData.lossAvoided, currency)}</p>
+              <p className="text-[10px] text-dark-400 uppercase">Loss Avoided</p>
+            </div>
+          </div>
+          {missedData.trades.length > 0 && (
+            <div className="divide-y divide-white/5 -mx-5 -mb-5 border-t border-white/5">
+              {missedData.trades.map((t) => (
+                <div key={t.id} className="px-5 py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="warn" size="sm">{resultLabel(t)}</Badge>
+                    <span className="text-sm text-white">{t.symbol}</span>
+                    <span className="text-xs text-dark-400">{fmtDateTime(t.entryDate)}</span>
+                  </div>
+                  <span className={`text-sm font-semibold ${num(t.pnl) >= 0 ? "text-profit" : "text-loss"}`}>{formatCurrency(num(t.pnl), currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
     </PageShell>
   );
 }

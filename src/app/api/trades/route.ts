@@ -41,6 +41,29 @@ export async function GET(req: NextRequest) {
     if (search) filters.push(or(ilike(trades.symbol, `%${search}%`), ilike(trades.strategy, `%${search}%`), ilike(trades.setup, `%${search}%`), ilike(trades.notes, `%${search}%`)));
 
     const whereClause = filters.length > 0 ? and(...filters) : undefined;
+    const slim = searchParams.get("slim") === "1";
+
+    if (slim) {
+      // Exclude heavy screenshot columns for list/dashboard views
+      const allTrades = await db.select({
+        id: trades.id, symbol: trades.symbol, marketType: trades.marketType,
+        direction: trades.direction, status: trades.status, outcome: trades.outcome,
+        session: trades.session, entryPrice: trades.entryPrice, exitPrice: trades.exitPrice,
+        stopLoss: trades.stopLoss, takeProfit: trades.takeProfit, positionSize: trades.positionSize,
+        accountSize: trades.accountSize, riskAmount: trades.riskAmount, riskPercent: trades.riskPercent,
+        pipsCaptured: trades.pipsCaptured, pnl: trades.pnl, pnlPercent: trades.pnlPercent,
+        fees: trades.fees, riskRewardRatio: trades.riskRewardRatio, rMultiple: trades.rMultiple,
+        entryDate: trades.entryDate, exitDate: trades.exitDate,
+        strategy: trades.strategy, setup: trades.setup, timeframe: trades.timeframe,
+        notes: trades.notes, tags: trades.tags, whatWorked: trades.whatWorked,
+        mistakes: trades.mistakes, whatIDid: trades.whatIDid, whatIShouldHaveDone: trades.whatIShouldHaveDone,
+        emotionEntry: trades.emotionEntry, confidence: trades.confidence,
+        isMissed: trades.isMissed, accountId: trades.accountId,
+        createdAt: trades.createdAt, updatedAt: trades.updatedAt,
+      }).from(trades).where(whereClause).orderBy(desc(trades.entryDate));
+      return NextResponse.json(allTrades);
+    }
+
     const allTrades = await db.select().from(trades).where(whereClause).orderBy(desc(trades.entryDate));
     return NextResponse.json(allTrades);
   } catch (error) {
@@ -61,14 +84,12 @@ export async function POST(req: NextRequest) {
     const exitVal = num(body.exitPrice);
     const slVal = num(body.stopLoss);
 
-    // Determine outcome from pips or price difference
-    let outcome: "win" | "loss" | "breakeven" | null = null;
-    if (body.status === "closed" && exitVal > 0) {
+    // Use outcome from frontend if provided, otherwise derive from prices
+    let outcome: "win" | "loss" | "breakeven" | null = body.outcome || null;
+    if (!outcome && body.status === "closed" && exitVal > 0) {
       if (pipsVal > 0.01) outcome = "win";
       else if (pipsVal < -0.01) outcome = "loss";
-      else if (pipsVal !== 0) outcome = pipsVal > 0 ? "win" : "loss";
       else {
-        // Fallback: determine from entry vs exit
         const diff = body.direction === "long" ? exitVal - entryVal : entryVal - exitVal;
         if (diff > 0.00001) outcome = "win";
         else if (diff < -0.00001) outcome = "loss";
@@ -139,6 +160,7 @@ export async function POST(req: NextRequest) {
         screenshotAfter: body.screenshotAfter || null,
         playbookId: body.playbookId || null,
         accountId: body.accountId || null,
+        isMissed: body.isMissed === true,
       })
       .returning();
 

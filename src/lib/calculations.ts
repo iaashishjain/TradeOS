@@ -35,7 +35,7 @@ export interface PerformanceMetrics {
 
 // ── Performance Metrics Calculator ──
 export function calculatePerformanceMetrics(trades: Trade[]): PerformanceMetrics {
-  const closed = trades.filter((t) => t.status === "closed");
+  const closed = trades.filter((t) => t.status === "closed" && !t.isMissed);
   const totalTrades = closed.length;
 
   if (totalTrades === 0) {
@@ -178,7 +178,7 @@ export function calculateEquityCurve(
   startingBalance: number
 ): { date: string; equity: number; pnl: number }[] {
   const sorted = [...trades]
-    .filter((t) => t.status === "closed" && t.exitDate)
+    .filter((t) => t.status === "closed" && !t.isMissed && t.exitDate)
     .sort(
       (a, b) =>
         new Date(a.exitDate!).getTime() - new Date(b.exitDate!).getTime()
@@ -200,7 +200,7 @@ export function calculateEquityCurve(
 export function calculateDailyPnl(
   trades: Trade[]
 ): { date: string; pnl: number; trades: number }[] {
-  const closed = trades.filter((t) => t.status === "closed" && t.exitDate);
+  const closed = trades.filter((t) => t.status === "closed" && !t.isMissed && t.exitDate);
   const byDay = new Map<string, { pnl: number; count: number }>();
 
   for (const t of closed) {
@@ -225,7 +225,7 @@ export function getTradesByMarket(
   trades: Trade[]
 ): Record<string, { count: number; pnl: number; winRate: number }> {
   const result: Record<string, { count: number; pnl: number; wins: number }> = {};
-  const closed = trades.filter((t) => t.status === "closed");
+  const closed = trades.filter((t) => t.status === "closed" && !t.isMissed);
 
   for (const t of closed) {
     const market = t.marketType;
@@ -286,6 +286,21 @@ export function formatPrice(val: string | number | null | undefined): string {
     return int + "." + trimmed;
   }
   return s + ".0";
+}
+
+// ── Trade Result Display Helpers ──
+export function resultLabel(t: { outcome?: string | null; isMissed?: boolean }): string {
+  if (t.outcome === "win") return t.isMissed ? "Missed Win" : "Win";
+  if (t.outcome === "loss") return t.isMissed ? "Missed Loss" : "Loss";
+  if (t.outcome === "breakeven") return t.isMissed ? "Missed BE" : "Breakeven";
+  return "—";
+}
+
+export function resultVariant(t: { outcome?: string | null; isMissed?: boolean }): "profit" | "loss" | "warn" | "default" {
+  if (t.isMissed) return "warn";
+  if (t.outcome === "win") return "profit";
+  if (t.outcome === "loss") return "loss";
+  return "default";
 }
 
 // ── Date Utilities (12-hour, AM/PM) ──

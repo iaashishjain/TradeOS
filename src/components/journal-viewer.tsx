@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Card, Badge, Button, Modal } from "@/components/ui";
-import { formatCurrency, formatPrice, num, fmtDate, fmtTime, fmtDateTime, fmtDateFull, fmtDateTimeFull } from "@/lib/calculations";
+import { formatCurrency, formatPrice, num, fmtDate, fmtTime, fmtDateTime, fmtDateFull, fmtDateTimeFull, resultLabel, resultVariant } from "@/lib/calculations";
 import { format } from "date-fns";
 import type { Trade } from "@/db/schema";
 
@@ -28,7 +28,7 @@ export function JournalViewer({ trades, startDate, endDate, onClose, title }: Jo
   }, [trades, startDate, endDate]);
 
   const summary = useMemo(() => {
-    const closed = filteredTrades.filter((t) => t.status === "closed");
+    const closed = filteredTrades.filter((t) => t.status === "closed" && !t.isMissed);
     const wins = closed.filter((t) => t.outcome === "win");
     const losses = closed.filter((t) => t.outcome === "loss");
     const totalPnl = closed.reduce((sum, t) => sum + num(t.pnl), 0);
@@ -264,9 +264,10 @@ export function JournalViewer({ trades, startDate, endDate, onClose, title }: Jo
         ) : (
           <div className="divide-y divide-white/5">
             {tradesByDate.map(([dateStr, dayTrades]) => {
-              const dayPnl = dayTrades.filter((t) => t.status === "closed").reduce((sum, t) => sum + num(t.pnl), 0);
-              const dayWins = dayTrades.filter((t) => t.outcome === "win").length;
-              const dayLosses = dayTrades.filter((t) => t.outcome === "loss").length;
+              const dayTaken = dayTrades.filter((t) => t.status === "closed" && !t.isMissed);
+              const dayPnl = dayTaken.reduce((sum, t) => sum + num(t.pnl), 0);
+              const dayWins = dayTaken.filter((t) => t.outcome === "win").length;
+              const dayLosses = dayTaken.filter((t) => t.outcome === "loss").length;
               
               return (
                 <div key={dateStr} className="p-5">
@@ -329,7 +330,7 @@ export function JournalViewer({ trades, startDate, endDate, onClose, title }: Jo
                         {(trade.screenshotBefore || trade.screenshotAfter) && (
                           <div className="flex gap-2 mb-3">
                             {trade.screenshotBefore && (
-                              <img
+                              <img loading="lazy"
                                 src={trade.screenshotBefore}
                                 alt="Before"
                                 className="h-16 w-24 object-cover rounded border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"
@@ -340,7 +341,7 @@ export function JournalViewer({ trades, startDate, endDate, onClose, title }: Jo
                               />
                             )}
                             {trade.screenshotAfter && (
-                              <img
+                              <img loading="lazy"
                                 src={trade.screenshotAfter}
                                 alt="After"
                                 className="h-16 w-24 object-cover rounded border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"
@@ -395,7 +396,7 @@ export function JournalViewer({ trades, startDate, endDate, onClose, title }: Jo
         wide
       >
         {imageModal && (
-          <img
+          <img loading="lazy"
             src={imageModal.url}
             alt={imageModal.title}
             className="w-full rounded-lg"
@@ -416,8 +417,8 @@ function TradeDetailView({ trade, onImageClick }: { trade: Trade; onImageClick: 
           <Badge variant={trade.direction === "long" ? "profit" : "loss"}>
             {trade.direction === "long" ? "BUY" : "SELL"}
           </Badge>
-          <Badge variant={trade.outcome === "win" ? "profit" : trade.outcome === "loss" ? "loss" : "default"}>
-            {trade.outcome?.toUpperCase() || trade.status.toUpperCase()}
+          <Badge variant={resultVariant(trade)}>
+            {resultLabel(trade)}
           </Badge>
         </div>
         <div className="text-right">
@@ -480,7 +481,7 @@ function TradeDetailView({ trade, onImageClick }: { trade: Trade; onImageClick: 
             {trade.screenshotBefore && (
               <div>
                 <p className="text-xs text-dark-400 mb-2">Before Entry</p>
-                <img
+                <img loading="lazy"
                   src={trade.screenshotBefore}
                   alt="Before"
                   className="w-full rounded-lg border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"
@@ -491,7 +492,7 @@ function TradeDetailView({ trade, onImageClick }: { trade: Trade; onImageClick: 
             {trade.screenshotAfter && (
               <div>
                 <p className="text-xs text-dark-400 mb-2">After Exit</p>
-                <img
+                <img loading="lazy"
                   src={trade.screenshotAfter}
                   alt="After"
                   className="w-full rounded-lg border border-white/10 cursor-pointer hover:border-accent-500/50 transition-colors"

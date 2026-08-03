@@ -972,7 +972,7 @@ export const Skeleton = memo(function Skeleton({
   return (
     <div className={`space-y-2 ${className}`} aria-busy="true" aria-label="Loading">
       {Array.from({ length: lines }).map((_, i) => (
-        <div key={i} className="h-4 bg-dark-700 rounded animate-pulse" style={{ width: `${Math.random() * 40 + 60}%` }} />
+        <div key={i} className="h-4 bg-dark-700 rounded animate-pulse" style={{ width: `${60 + ((i * 13) % 40)}%` }} />
       ))}
     </div>
   );

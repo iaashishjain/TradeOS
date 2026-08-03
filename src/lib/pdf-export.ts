@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCurrency, formatPrice, num } from "@/lib/calculations";
+import { formatCurrency, formatPrice, num, resultLabel } from "@/lib/calculations";
 import type { Trade, Playbook, DailyReview } from "@/db/schema";
 
 // ── Colors ──
@@ -161,7 +161,7 @@ export async function exportTradeJournalPDF(trades: Trade[], dateRange: { start:
       t.pnl ? formatCurrency(num(t.pnl)) : "—",
       t.rMultiple ? `${num(t.rMultiple) >= 0 ? "+" : ""}${num(t.rMultiple).toFixed(2)}R` : "—",
       t.strategy || "—", t.setup || "—", t.timeframe || "—",
-      t.outcome?.toUpperCase() || t.status.toUpperCase(),
+      resultLabel(t),
     ]),
     styles: { fontSize: 6.5, cellPadding: 1.5, textColor: C.text },
     headStyles: { fillColor: C.headerBg, textColor: C.white, fontSize: 6, fontStyle: "bold" },
@@ -188,7 +188,7 @@ export async function exportTradeJournalPDF(trades: Trade[], dateRange: { start:
       head: [["#", "Date · Session", "Symbol", "Result", "P&L", "What I Did", "What I Should Have Done", "Notes"]],
       body: withNotes.map((t, i) => [
         i + 1, `${fDate(t.entryDate)} · ${sesLbl(t.session)} ${fTime(t.entryDate)}`, t.symbol,
-        t.outcome?.toUpperCase() || t.status.toUpperCase(),
+        resultLabel(t),
         t.pnl ? formatCurrency(num(t.pnl)) : "—",
         t.whatIDid || "—", t.whatIShouldHaveDone || "—", t.notes || "—",
       ]),
@@ -212,7 +212,7 @@ export async function exportTradeJournalPDF(trades: Trade[], dateRange: { start:
       body: withTags.map((t, i) => [
         i + 1, `${fDate(t.entryDate)} · ${sesLbl(t.session)} ${fTime(t.entryDate)}`, t.symbol,
         t.direction === "long" ? "BUY" : "SELL",
-        t.outcome?.toUpperCase() || t.status.toUpperCase(),
+        resultLabel(t),
         t.pnl ? formatCurrency(num(t.pnl)) : "—",
         ((t.whatWorked as string[]) || []).join(", ") || "—",
         ((t.mistakes as string[]) || []).join(", ") || "—",
@@ -297,7 +297,7 @@ export async function exportDashboardPDF(
         t.direction === "long" ? "BUY" : "SELL",
         t.pnl ? formatCurrency(num(t.pnl)) : "—",
         t.rMultiple ? `${num(t.rMultiple) >= 0 ? "+" : ""}${num(t.rMultiple).toFixed(2)}R` : "—",
-        t.strategy || "—", t.outcome?.toUpperCase() || "—",
+        t.strategy || "—", resultLabel(t),
       ]),
       styles: { fontSize: 7, cellPadding: 2, textColor: C.text },
       headStyles: { fillColor: C.headerBg, textColor: C.white, fontSize: 7, fontStyle: "bold" },
