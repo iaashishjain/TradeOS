@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
     // Store exactly what the user entered — no recalculation of prices/pips/pnl
     const [newTrade] = await db
       .insert(trades)
-      .values([{
+      .values({
         symbol: (body.symbol || "").toUpperCase(),
         marketType: body.marketType,
         direction: body.direction,
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
         playbookId: body.playbookId || null,
         accountId: body.accountId || null,
         isMissed: body.isMissed === true,
-      }])
+      })
       .returning();
 
     return NextResponse.json(newTrade, { status: 201 });
