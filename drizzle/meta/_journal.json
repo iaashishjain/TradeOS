@@ -15,6 +15,13 @@
       "when": 1785766523762,
       "tag": "0001_talented_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785782384863,
+      "tag": "0002_ambitious_pestilence",
+      "breakpoints": true
     }
   ]
 }

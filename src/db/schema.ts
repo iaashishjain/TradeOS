@@ -89,8 +89,8 @@ export const trades = pgTable("trades", {
   rMultiple: numeric("r_multiple", { precision: 8, scale: 2 }),
 
   // Timing
-  entryDate: timestamp("entry_date").notNull(),
-  exitDate: timestamp("exit_date"),
+  entryDate: text("entry_date").notNull(),
+  exitDate: text("exit_date"),
 
   // Strategy & Setup
   strategy: text("strategy"),
