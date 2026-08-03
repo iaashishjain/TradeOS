@@ -304,39 +304,75 @@ export function resultVariant(t: { outcome?: string | null; isMissed?: boolean }
 }
 
 // ── Date Utilities (12-hour, AM/PM) ──
+// ── Date Utilities (IST, 12-hour AM/PM) ──
+const IST_TIMEZONE = "Asia/Kolkata";
+
 export function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
+
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  return dt.toLocaleDateString("en-US", {
+    timeZone: IST_TIMEZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function fmtTime(d: Date | string | null | undefined): string {
   if (!d) return "";
+
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "";
-  return dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+  return dt.toLocaleTimeString("en-US", {
+    timeZone: IST_TIMEZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 export function fmtDateTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
+
   const date = fmtDate(d);
   const time = fmtTime(d);
+
   return date === "—" ? "—" : time ? `${date} · ${time}` : date;
 }
 
 export function fmtDateFull(d: Date | string | null | undefined): string {
   if (!d) return "—";
+
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  return dt.toLocaleDateString("en-US", {
+    timeZone: IST_TIMEZONE,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function fmtDateTimeFull(d: Date | string | null | undefined): string {
   if (!d) return "—";
+
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
-  const date = dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+  const date = dt.toLocaleDateString("en-US", {
+    timeZone: IST_TIMEZONE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
   const time = fmtTime(d);
+
   return `${date} · ${time}`;
 }
