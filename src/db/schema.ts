@@ -33,10 +33,13 @@ export const tradeOutcomeEnum = pgEnum("trade_outcome", [
 ]);
 
 export const sessionEnum = pgEnum("session_name", [
+  "pre_market",
   "asian",
+  "sydney",
   "london",
-  "new_york",
   "overlap",
+  "new_york",
+  "post_market",
 ]);
 
 export const reviewRatingEnum = pgEnum("review_rating", [
