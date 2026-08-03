@@ -17,11 +17,9 @@ export async function DELETE(req: NextRequest) {
     }
 
     const conditions = [eq(trades.accountId, accountId)];
-    if (from) conditions.push(gte(trades.entryDate, new Date(from)));
+    if (from) conditions.push(gte(trades.entryDate, from));
     if (to) {
-      const endDate = new Date(to);
-      endDate.setHours(23, 59, 59, 999);
-      conditions.push(lte(trades.entryDate, endDate));
+      conditions.push(lte(trades.entryDate, `${to}T23:59`));
     }
 
     const result = await db.delete(trades).where(and(...conditions));
