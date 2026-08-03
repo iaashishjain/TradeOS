@@ -12,6 +12,16 @@ function num(val: string | number | null | undefined): number {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+if (id) {
+  const [trade] = await db
+    .select()
+    .from(trades)
+    .where(eq(trades.id, id));
+
+  return NextResponse.json(trade || null);
+}
     const filters: ReturnType<typeof and>[] = [];
 
     const dateFrom = searchParams.get("dateFrom");
@@ -142,8 +152,8 @@ export async function POST(req: NextRequest) {
         fees: body.fees || "0",
         riskRewardRatio: riskRewardRatio,
         rMultiple: rMultiple,
-        entryDate: new Date(body.entryDate),
-        exitDate: body.exitDate ? new Date(body.exitDate) : null,
+        entryDate: body.entryDate ? new Date(body.entryDate + ":00") : new Date(),
+        exitDate: body.exitDate ? new Date(body.exitDate + ":00") : null,
         strategy: body.strategy || null,
         setup: body.setup || null,
         timeframe: body.timeframe || null,
@@ -203,8 +213,8 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    if (updates.entryDate) updates.entryDate = new Date(updates.entryDate);
-    if (updates.exitDate) updates.exitDate = new Date(updates.exitDate);
+    if (updates.entryDate) updates.entryDate = new Date(`${updates.entryDate}:00`);
+    if (updates.exitDate) updates.exitDate = new Date(`${updates.exitDate}:00`);
     updates.updatedAt = new Date();
     if (updates.symbol) updates.symbol = updates.symbol.toUpperCase();
 

@@ -117,13 +117,14 @@ export function useTrades(filters: TradeFilters = {}) {
 
   // Fetch full trade with screenshots for detail view
   const fetchFullTrade = useCallback(async (id: string): Promise<Trade | null> => {
-    try {
-      const res = await fetch(`/api/trades?accountId=${filters.accountId}`);
-      if (!res.ok) return null;
-      const all: Trade[] = await res.json();
-      return all.find((t) => t.id === id) || null;
-    } catch { return null; }
-  }, [filters.accountId]);
+  try {
+    const res = await fetch(`/api/trades?id=${id}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}, []);
 
   // loading = true when: (1) settings not loaded yet OR (2) trades not fetched yet for this account
   const loading = !isReady || !tradeStoreLoaded;

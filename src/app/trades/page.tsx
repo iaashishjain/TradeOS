@@ -641,7 +641,7 @@ export default function TradesPage() {
                       if (!t.screenshotBefore && !t.screenshotAfter) {
                         const full = await fetchFullTrade(t.id);
                         if (full) setViewingTrade(full);
-                      }
+                    }
                     }}
                   >
                     <td className="px-4 py-3 text-dark-200 whitespace-nowrap">
