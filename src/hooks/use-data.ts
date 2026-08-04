@@ -62,6 +62,7 @@ export function useTrades(filters: TradeFilters = {}) {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value) params.append(key, value); });
     params.set("slim", "1"); // Exclude screenshot blobs from list queries
+    console.log("TRADE FILTER URL:", `/api/trades?${params.toString()}`);
     return `/api/trades?${params.toString()}`;
   })();
 
@@ -127,9 +128,20 @@ export function useTrades(filters: TradeFilters = {}) {
 }, []);
 
   // loading = true when: (1) settings not loaded yet OR (2) trades not fetched yet for this account
-  const loading = !isReady || !tradeStoreLoaded;
+  const isCurrentData = tradeStoreUrl === url;
 
-  return { trades: tradeStore, loading, error: null as string | null, refetch, createTrade, updateTrade, deleteTrade, fetchFullTrade };
+const loading = !isReady || !tradeStoreLoaded || !isCurrentData;
+
+return {
+  trades: isCurrentData ? tradeStore : [],
+  loading,
+  error: null as string | null,
+  refetch,
+  createTrade,
+  updateTrade,
+  deleteTrade,
+  fetchFullTrade
+};
 }
 
 // ── Generic data hook ──

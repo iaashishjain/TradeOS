@@ -156,7 +156,25 @@ const createDefaultForm = (settings: { startingBalance?: string | null } | null)
 export default function TradesPage() {
   const { settings } = useSettings();
   // Filters state - always include accountId from default account
-  const [filters, setFilters] = useState<TradeFilters>({});
+  
+
+  const today = format(new Date(), "yyyy-MM-dd");
+
+const [filters, setFilters] = useState<TradeFilters>(() => {
+  if (typeof window !== "undefined") {
+    const saved = sessionStorage.getItem("tradeFilters");
+    if (saved) return JSON.parse(saved);
+  }
+
+  return {
+    dateFrom: today,
+    dateTo: today,
+  };
+});
+
+  useEffect(() => {
+  sessionStorage.setItem("tradeFilters", JSON.stringify(filters));
+}, [filters]);
   const [showFilters, setShowFilters] = useState(false);
   
   const mergedFilters = useMemo(() => ({ ...filters, accountId: settings?.id }), [filters, settings?.id]);
