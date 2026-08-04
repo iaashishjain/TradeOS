@@ -38,8 +38,8 @@ if (id) {
     const accountId = searchParams.get("accountId");
 
     if (accountId) filters.push(eq(trades.accountId, accountId));
-    if (dateFrom) filters.push(gte(trades.entryDate, new Date(`${dateFrom}T00:00:00`)));
-    if (dateTo) filters.push(lte(trades.entryDate, new Date(`${dateTo}T23:59:59`)));
+    if (dateFrom) filters.push(gte(trades.entryDate, `${dateFrom}T00:00:00`));
+    if (dateTo) filters.push(lte(trades.entryDate, `${dateTo}T23:59:59`));
     if (symbol) filters.push(ilike(trades.symbol, `%${symbol}%`));
     if (strategy) filters.push(eq(trades.strategy, strategy));
     if (setup) filters.push(eq(trades.setup, setup));
