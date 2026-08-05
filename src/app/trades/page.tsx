@@ -191,6 +191,7 @@ const [filters, setFilters] = useState<TradeFilters>(() => {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [form, setForm] = useState<TradeForm>(() => createDefaultForm(settings));
   const [saving, setSaving] = useState(false);
+  const [minRiskWarning, setMinRiskWarning] = useState("");
   const [tab, setTab] = useState("all");
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
   const [imageModal, setImageModal] = useState<{ url: string; title: string } | null>(null);
@@ -289,7 +290,23 @@ const [filters, setFilters] = useState<TradeFilters>(() => {
         const slPips = Math.abs(entry - sl) * pipMultiplier;
         if (slPips > 0) {
           const calcLots = riskAmount / (slPips * pipValuePerLot);
-          next.positionSize = calcLots.toFixed(2);
+
+if (calcLots < 0.01) {
+  next.positionSize = "0.01";
+
+  const minRiskAmount = slPips * pipValuePerLot * 0.01;
+  const minRiskPercent = (minRiskAmount / accountSize) * 100;
+
+  const displayRisk =
+  Number.isInteger(minRiskPercent)
+    ? minRiskPercent.toString()
+    : minRiskPercent.toFixed(1).replace(/\.0$/, "");
+
+setMinRiskWarning(`⚠ Min Risk: ${displayRisk}%`);
+} else {
+  next.positionSize = calcLots.toFixed(2);
+  setMinRiskWarning("");
+}
         }
       }
 
@@ -796,6 +813,12 @@ const [filters, setFilters] = useState<TradeFilters>(() => {
                 onChange={(e) => updateField("positionSize", e.target.value)}
                 suffix="lots"
               />
+
+              {minRiskWarning && (
+  <p className="mt-1 text-xs text-yellow-400">
+    {minRiskWarning}
+  </p>
+)}
             </div>
           </div>
 
