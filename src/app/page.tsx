@@ -24,8 +24,8 @@ import Link from "next/link";
 export default function DashboardPage() {
   const { settings } = useSettings();
   const { trades, loading } = useTrades({ accountId: settings?.id });
-  const [dateRange, setDateRange] = useState({ start: format(subMonths(new Date(), 3), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
-  const [quickRange, setQuickRange] = useState("3M");
+  const [dateRange, setDateRange] = useState({ start: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
+  const [quickRange, setQuickRange] = useState("1M");
 
   
 
@@ -131,10 +131,10 @@ export default function DashboardPage() {
             setQuickRange(r);
             const end = new Date(); let start;
             if (r === "1W") start = subDays(end, 7);
-            else if (r === "1M") start = subMonths(end, 1);
-            else if (r === "3M") start = subMonths(end, 3);
-            else if (r === "6M") start = subMonths(end, 6);
-            else if (r === "1Y") start = subMonths(end, 12);
+else if (r === "1M") start = new Date(end.getFullYear(), end.getMonth() - 1, 1);
+else if (r === "3M") start = new Date(end.getFullYear(), end.getMonth() - 2, 1);
+else if (r === "6M") start = new Date(end.getFullYear(), end.getMonth() - 5, 1);
+else if (r === "1Y") start = new Date(end.getFullYear() - 1, end.getMonth(), 1);
             else start = new Date(2020, 0, 1);
             setDateRange({ start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd") });
           }} className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-all ${quickRange === r ? "bg-accent-500 text-white" : "bg-dark-800 text-dark-400 hover:text-white"}`}>{r}</button>
