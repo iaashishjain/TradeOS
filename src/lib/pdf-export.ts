@@ -18,11 +18,11 @@ const C = {
 // ── Helpers ──
 function fDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(d).toLocaleDateString("en-GB", { month: "short", day: "numeric", year: "numeric" });
 }
 function fTime(d: Date | string | null | undefined): string {
   if (!d) return "";
-  return new Date(d).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return new Date(d).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 function sesLbl(s: string | null | undefined): string {
   if (!s) return "—";
@@ -68,7 +68,7 @@ function addHeader(doc: any, title: string, subtitle: string) {
   doc.setFontSize(8);
   doc.setTextColor(180, 180, 200);
   doc.text(subtitle, w - 10, 10, { align: "right" });
-  doc.text(new Date().toLocaleString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }), w - 10, 16, { align: "right" });
+  doc.text(new Date().toLocaleString("en-GB", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }), w - 10, 16, { align: "right" });
 }
 
 function addFooter(doc: any) {
@@ -380,7 +380,7 @@ export async function exportReviewsPDF(reviews: DailyReview[], trades: Trade[]) 
   } else {
     for (const r of reviews) {
       if (needsBreak(doc, y, 45)) { doc.addPage(); addHeader(doc, "Daily Reviews Report", ""); y = 28; }
-      const ds = new Date(r.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      const ds = new Date(r.date).toLocaleDateString("en-GB", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
       const dayT = trades.filter((t) => t.status === "closed" && t.exitDate && fDate(t.exitDate) === fDate(r.date));
       const dp = dayT.reduce((s, t) => s + num(t.pnl), 0);
       y = secTitle(doc, y, ds);

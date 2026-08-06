@@ -19,7 +19,6 @@ if (id) {
     .select()
     .from(trades)
     .where(eq(trades.id, id));
-
   return NextResponse.json(trade || null);
 }
     const filters: ReturnType<typeof and>[] = [];

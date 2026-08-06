@@ -62,7 +62,6 @@ export function useTrades(filters: TradeFilters = {}) {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value) params.append(key, value); });
     params.set("slim", "1"); // Exclude screenshot blobs from list queries
-    console.log("TRADE FILTER URL:", `/api/trades?${params.toString()}`);
     return `/api/trades?${params.toString()}`;
   })();
 
@@ -90,7 +89,9 @@ export function useTrades(filters: TradeFilters = {}) {
     if (!url) return;
     fetch(url)
       .then((r) => r.ok ? r.json() : Promise.reject())
-      .then((json) => { setTradeStore(json, url); })
+      .then((json) => {
+  setTradeStore(json, url);
+})
       .catch(() => {});
   }, [url]);
 

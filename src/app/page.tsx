@@ -30,9 +30,14 @@ export default function DashboardPage() {
   
 
   const filteredTrades = useMemo(() => trades.filter((t) => {
-    const d = new Date(t.entryDate);
-    return d >= new Date(dateRange.start) && d <= new Date(dateRange.end + "T23:59:59");
-  }), [trades, dateRange]);
+  const d = format(new Date(t.entryDate), "yyyy-MM-dd");
+  return d >= dateRange.start && d <= dateRange.end;
+}), [trades, dateRange]);
+  
+
+  const takenTrades = filteredTrades.filter((t) => !t.isMissed);
+  const missedTrades = filteredTrades.filter((t) => t.isMissed);
+  
 
   const startingBalance = num(settings?.startingBalance) || 10000;
   const currency = settings?.currency || "USD";
@@ -143,7 +148,9 @@ else if (r === "1Y") start = new Date(end.getFullYear() - 1, end.getMonth(), 1);
         <Input type="date" value={dateRange.start} onChange={(e) => { setDateRange(p => ({ ...p, start: e.target.value })); setQuickRange(""); }} className="!py-1 text-xs !w-32" />
         <span className="text-dark-500">→</span>
         <Input type="date" value={dateRange.end} onChange={(e) => { setDateRange(p => ({ ...p, end: e.target.value })); setQuickRange(""); }} className="!py-1 text-xs !w-32" />
-        <span className="text-xs text-dark-400">{filteredTrades.length} trades</span>
+       <span className="text-xs text-dark-400">
+  {takenTrades.length} Taken Trade{takenTrades.length !== 1 ? "s" : ""} • {missedTrades.length} Missed Trade{missedTrades.length !== 1 ? "s" : ""}
+</span>
       </div>
 
       {/* Account Overview Strip */}

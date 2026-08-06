@@ -313,7 +313,7 @@ export function fmtDate(d: Date | string | null | undefined): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
 
-  return dt.toLocaleDateString("en-US", {
+  return dt.toLocaleDateString("en-GB", {
     timeZone: IST_TIMEZONE,
     month: "short",
     day: "numeric",
@@ -350,7 +350,7 @@ export function fmtDateFull(d: Date | string | null | undefined): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
 
-  return dt.toLocaleDateString("en-US", {
+  return dt.toLocaleDateString("en-GB", {
     timeZone: IST_TIMEZONE,
     weekday: "long",
     month: "long",
@@ -365,7 +365,7 @@ export function fmtDateTimeFull(d: Date | string | null | undefined): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   if (isNaN(dt.getTime())) return "—";
 
-  const date = dt.toLocaleDateString("en-US", {
+  const date = dt.toLocaleDateString("en-GB", {
     timeZone: IST_TIMEZONE,
     weekday: "short",
     month: "short",
